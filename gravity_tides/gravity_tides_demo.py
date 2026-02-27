@@ -12,23 +12,31 @@ import sys
 import os
 import math
 
-# 실행 위치 자동 감지: CookiieBrain 패키지 or GaiaFire_Engine 독립 실행 둘 다 지원
-_HERE   = os.path.dirname(__file__)                  # gravity_tides/
-_PARENT = os.path.dirname(_HERE)                     # solar/ or GaiaFire_Engine/
-_ROOT   = os.path.dirname(_PARENT)                   # CookiieBrain/ or 상위
-sys.path.insert(0, _ROOT)   # CookiieBrain 루트 (solar 패키지 접근)
-sys.path.insert(0, _PARENT) # GaiaFire_Engine 루트 (gravity_tides 직접 접근)
+# 실행 위치 자동 감지 (3가지 시나리오 모두 커버)
+# 1. CookiieBrain:      python solar/gravity_tides/gravity_tides_demo.py
+# 2. GaiaFire_Engine:   python gravity_tides/gravity_tides_demo.py
+# 3. 평면 업로드셋:     python gravity_tides_demo.py  (같은 폴더에 파일 있음)
+_HERE   = os.path.dirname(os.path.abspath(__file__))  # 이 파일이 있는 폴더
+_PARENT = os.path.dirname(_HERE)                       # 상위 (solar/ or GaiaFire_Engine/)
+_ROOT   = os.path.dirname(_PARENT)                     # 최상위 (CookiieBrain/ or 상위)
+for _p in (_HERE, _PARENT, _ROOT):                     # 세 경로 모두 등록
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 try:
-    from solar.gravity_tides import (
+    from solar.gravity_tides import (        # CookiieBrain 패키지 구조
         TidalField, make_tidal_field,
         OceanNutrients, make_ocean_nutrients,
     )
 except ImportError:
-    from gravity_tides import (                      # GaiaFire_Engine 독립 실행
-        TidalField, make_tidal_field,
-        OceanNutrients, make_ocean_nutrients,
-    )
+    try:
+        from gravity_tides import (          # GaiaFire_Engine / 평면 폴더 구조
+            TidalField, make_tidal_field,
+            OceanNutrients, make_ocean_nutrients,
+        )
+    except ImportError:
+        from tidal_mixing import TidalField, make_tidal_field   # 완전 평면 (같은 폴더)
+        from ocean_nutrients import OceanNutrients, make_ocean_nutrients
 
 PASS = "✅ PASS"
 FAIL = "❌ FAIL"
