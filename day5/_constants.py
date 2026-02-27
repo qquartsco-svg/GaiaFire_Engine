@@ -26,6 +26,7 @@ DEFAULT_GROWTH_PHYTO: float = 1.0   # [1/yr] phyto 내재 성장률
 DEFAULT_GRAZING_RATE: float = 0.5   # [1/yr] 초식 포식률
 DEFAULT_PREDATION:    float = 0.3   # [1/yr] 상위 포식률
 DEFAULT_RESP_FRAC:    float = 0.5   # [-] 호흡 CO₂ 비율
+M_CARNIVORE:          float = 0.1   # [1/yr] carnivore 사망률 (장기 폭증 방지)
 
 __all__ = [
     # mobility
@@ -39,4 +40,5 @@ __all__ = [
     "DEFAULT_GRAZING_RATE",
     "DEFAULT_PREDATION",
     "DEFAULT_RESP_FRAC",
+    "M_CARNIVORE",
 ]

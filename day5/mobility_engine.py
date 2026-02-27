@@ -38,12 +38,23 @@ from ._constants import (
 # ── 유틸리티 ───────────────────────────────────────────────────────────────────
 
 def _ring_neighbors(n_bands: int) -> List[List[int]]:
-    """단순 위도 밴드 링 구조의 이웃 목록을 생성."""
-    neighbors: List[List[int]] = [[] for _ in range(n_bands)]
+    """위도 밴드 이웃 목록 생성.
+
+    물리적 위도 구조:
+        밴드 0        = 남극 (−90°) → 오른쪽(1)만 이웃
+        밴드 1~n-2   = 중위도      → 양쪽(i-1, i+1) 이웃
+        밴드 n-1     = 북극 (+90°) → 왼쪽(n-2)만 이웃
+
+    위도 경계에서 wrap-around 하지 않는다.
+    """
+    neighbors: List[List[int]] = []
     for i in range(n_bands):
-        left  = (i - 1) % n_bands
-        right = (i + 1) % n_bands
-        neighbors[i] = [left, right]
+        nb: List[int] = []
+        if i > 0:
+            nb.append(i - 1)        # 남쪽 이웃
+        if i < n_bands - 1:
+            nb.append(i + 1)        # 북쪽 이웃
+        neighbors.append(nb)
     return neighbors
 
 

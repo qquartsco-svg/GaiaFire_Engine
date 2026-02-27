@@ -82,10 +82,12 @@ def run_day5_demo():
         f"O₂ 높을수록 이동률 증가 ({rates_high[0]:.4f} > {rates_low[0]:.4f})"
     )
 
-    # 이웃 구조: 각 밴드는 2개 이웃 (링 구조)
+    # 이웃 구조: 극지(밴드 0, 11)는 1개, 나머지는 2개
     ok4 = check(
-        all(len(nb) == 2 for nb in bird.neighbors),
-        f"모든 밴드 이웃 수 = 2 (링 구조)"
+        len(bird.neighbors[0]) == 1
+        and len(bird.neighbors[N_BANDS - 1]) == 1
+        and all(len(bird.neighbors[i]) == 2 for i in range(1, N_BANDS - 1)),
+        f"극지 1개 / 중위도 2개 이웃 구조 확인"
     )
     all_pass = all_pass and ok1 and ok2 and ok3 and ok4
 
@@ -205,6 +207,60 @@ def run_day5_demo():
     all_pass = all_pass and ok13 and ok14
 
     # ──────────────────────────────────────────────────────────────
+    print("\n  [V6] 극지 topology — 양 끝 밴드 단방향 이웃")
+
+    ok15 = check(
+        bird.neighbors[0] == [1],
+        f"밴드 0(남극) 이웃 = [1] only → {bird.neighbors[0]}"
+    )
+    ok16 = check(
+        bird.neighbors[N_BANDS - 1] == [N_BANDS - 2],
+        f"밴드 {N_BANDS-1}(북극) 이웃 = [{N_BANDS-2}] only → {bird.neighbors[N_BANDS-1]}"
+    )
+    ok17 = check(
+        bird.neighbors[6] == [5, 7],
+        f"밴드 6(중위도) 이웃 = [5, 7] → {bird.neighbors[6]}"
+    )
+    all_pass = all_pass and ok15 and ok16 and ok17
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n  [V7] carnivore 사망률 — 장기 폭증 방지")
+
+    fw2 = make_food_web()
+    s = TrophicState(phyto=0.5, herbivore=0.2, carnivore=0.5, co2_resp_yr=0.0)
+    # GPP=0, grazing 극소 → carnivore는 사망률로 감소해야 함
+    for _ in range(20):
+        s = fw2.step(s, env={"GPP": 0.0}, dt_yr=1.0)
+    ok18 = check(
+        s.carnivore < 0.5,
+        f"carnivore 20yr 후 감소: 0.500 → {s.carnivore:.4f}"
+    )
+    all_pass = all_pass and ok18
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n  [V8] FishAgent→FoodWeb 포트 — env[fish_predation] 주입")
+
+    fish = make_fish_agent(n_bands=N_BANDS)
+    phyto_by_band = [0.4] * N_BANDS
+    fish_pred = fish.predation_flux(phyto_by_band)
+
+    s_no_fish  = TrophicState(phyto=0.5, herbivore=0.2, carnivore=0.1, co2_resp_yr=0.0)
+    s_with_fish = TrophicState(phyto=0.5, herbivore=0.2, carnivore=0.1, co2_resp_yr=0.0)
+    fw3 = make_food_web()
+    s_no_fish   = fw3.step(s_no_fish,   env={"GPP": 0.3},                              dt_yr=1.0)
+    s_with_fish = fw3.step(s_with_fish, env={"GPP": 0.3, "fish_predation": fish_pred[6]}, dt_yr=1.0)
+
+    ok19 = check(
+        s_with_fish.phyto < s_no_fish.phyto,
+        f"fish_predation 주입 시 phyto 감소: {s_no_fish.phyto:.4f} → {s_with_fish.phyto:.4f}"
+    )
+    ok20 = check(
+        s_with_fish.co2_resp_yr > s_no_fish.co2_resp_yr,
+        f"fish_predation 주입 시 CO₂ 증가: {s_no_fish.co2_resp_yr:.4f} → {s_with_fish.co2_resp_yr:.4f}"
+    )
+    all_pass = all_pass and ok19 and ok20
+
+    # ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 65)
     print(f"  결과: {'ALL PASS ✅' if all_pass else 'SOME FAIL ❌'}")
     print("=" * 65)
@@ -213,10 +269,11 @@ def run_day5_demo():
     print("  BirdAgent.migration_rates() → SeedTransport.step(B_pioneer)")
     print("  BirdAgent.seed_flux()       → latitude_bands[i].pioneer += Δ")
     print("  BirdAgent.guano_flux()      → nitrogen.N_soil[i] += Δ")
-    print("  FishAgent.predation_flux()  → FoodWeb.phyto -= Δ")
+    print("  FishAgent.predation_flux()  → env['fish_predation'] → FoodWeb.phyto -= Δ")
     print("  FoodWeb.co2_resp_yr         → atmosphere.CO₂ += Δ")
     print()
     print(f"  Bird base_rate={bird.base_rate}/yr  Fish base_rate={make_fish_agent().base_rate}/yr")
+    print(f"  carnivore 사망률={fw2.mc}/yr  극지 wrap-around=없음")
 
     return all_pass
 
