@@ -52,9 +52,15 @@ MIXING_DEPTH_MIN = 5.0      # [m] 최소 혼합 깊이 (성층화 극한)
 MIXING_DEPTH_MAX = 500.0    # [m] 최대 혼합 깊이
 
 # 영양염 upwelling
-K_UPWELLING     = 0.01      # [g nutrient m⁻² yr⁻¹ per meter mixing × ppm concentration]
-C_DEEP_REF      = 40.0      # [μmol/L] 심층수 영양염 기준 (질산염)
-C_SURFACE_MIN   = 0.1       # [μmol/L] 표층 최솟값
+# 단위: K_UPWELLING_UM [μmol N/L/yr per meter mixing depth per μmol N/L gradient]
+# 물리: Kz(확산계수) / MLD² ~ 수직 확산  →  K ≈ 1e-4 m²/s / (100m)² ≈ 1e-8 s⁻¹ ≈ 0.3 yr⁻¹/m
+# 단순화: 1m 혼합 × 1 μmol/L 구배 → 0.01 μmol/L/yr 공급 (튜닝값)
+K_UPWELLING_UM  = 0.01      # [μmol N/L/yr per m per μmol N/L]
+C_DEEP_REF      = 30.0      # [μmol/L] 심층수 질산염 (현재 지구 심층 평균 ~30~40 μmol/L)
+C_SURFACE_MIN   = 0.05      # [μmol/L] 표층 최솟값 (영양염 고갈 극한)
+
+# 하위 호환: 구 버전 K_UPWELLING 이름 유지
+K_UPWELLING = K_UPWELLING_UM
 
 EPS = 1e-30
 
@@ -71,7 +77,8 @@ class TidalState:
         F_sun:         태양 조석력 [정규화]
         F_total:       총 조석력 [정규화]
         mixing_depth:  혼합 깊이 [m]
-        nutrient_flux: 영양염 upwelling 플럭스 [g m⁻² yr⁻¹]
+        upwelling_uM:  영양염 upwelling [μmol N/L/yr] (단위 정합됨)
+        nutrient_flux: upwelling_uM alias (하위 호환)
         spring_neap:   사리(1.0)~조금(0.0) 위상 [0~1]
     """
     time_yr: float
@@ -79,15 +86,20 @@ class TidalState:
     F_sun: float
     F_total: float
     mixing_depth: float
-    nutrient_flux: float
+    upwelling_uM: float     # 단위 정합된 primary 필드
     spring_neap: float
+
+    @property
+    def nutrient_flux(self) -> float:
+        """하위 호환 alias → upwelling_uM."""
+        return self.upwelling_uM
 
     def summary(self) -> str:
         return (
             f"t={self.time_yr:.2f}yr | "
             f"F={self.F_total:.3f} (moon={self.F_moon:.3f}+sun={self.F_sun:.3f}) | "
             f"mix={self.mixing_depth:.1f}m | "
-            f"nutrient={self.nutrient_flux:.4f} g/m²/yr | "
+            f"upwelling={self.upwelling_uM:.4f} μmol/L/yr | "
             f"spring/neap={self.spring_neap:.2f}"
         )
 
@@ -175,14 +187,27 @@ class TidalField:
 
     # ── 영양염 upwelling ──────────────────────────────────────────────────────
 
-    def nutrient_upwelling(self, mixing_depth: float) -> float:
-        """영양염 upwelling 플럭스 [g m⁻² yr⁻¹].
+    def nutrient_upwelling_uM(self, mixing_depth: float) -> float:
+        """영양염 upwelling 플럭스 [μmol N/L/yr].
 
-        flux = K_up × mixing_depth × (C_deep - C_surface)
+        flux = K_UPWELLING_UM × mixing_depth [m] × (C_deep - C_surface) [μmol/L]
+
+        단위:
+            [μmol/L/yr per m per μmol/L] × [m] × [μmol/L] = [μmol/L/yr]
+
+        Args:
+            mixing_depth: 혼합 깊이 [m] (TidalField.mixing_depth_m() 출력)
+
+        Returns:
+            upwelling_uM [μmol N/L/yr]
         """
         gradient = max(0.0, self.C_deep - max(C_SURFACE_MIN, self.C_surface))
-        flux = K_UPWELLING * mixing_depth * gradient
+        flux = K_UPWELLING_UM * mixing_depth * gradient
         return max(0.0, flux)
+
+    def nutrient_upwelling(self, mixing_depth: float) -> float:
+        """하위 호환용 alias → nutrient_upwelling_uM()."""
+        return self.nutrient_upwelling_uM(mixing_depth)
 
     # ── 통합 계산 ─────────────────────────────────────────────────────────────
 
@@ -207,17 +232,17 @@ class TidalField:
         # 사리-조금 변조
         F_tot = (F_m + F_s) * (0.7 + 0.3 * sn)
 
-        mix  = self.mixing_depth_m(F_tot)
-        flux = self.nutrient_upwelling(mix)
+        mix          = self.mixing_depth_m(F_tot)
+        upwelling_uM = self.nutrient_upwelling_uM(mix)
 
         return TidalState(
-            time_yr       = t_yr,
-            F_moon        = F_m,
-            F_sun         = F_s,
-            F_total       = F_tot,
-            mixing_depth  = mix,
-            nutrient_flux = flux,
-            spring_neap   = sn,
+            time_yr      = t_yr,
+            F_moon       = F_m,
+            F_sun        = F_s,
+            F_total      = F_tot,
+            mixing_depth = mix,
+            upwelling_uM = upwelling_uM,
+            spring_neap  = sn,
         )
 
 
