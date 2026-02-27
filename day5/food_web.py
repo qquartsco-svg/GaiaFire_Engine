@@ -19,14 +19,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
 
-
-# ── 속도 상수 ──────────────────────────────────────────────────────────────────
-
-ALPHA_CO2_ABS        = 0.5   # CO₂ 흡수 계수 (phyto 기준)
-DEFAULT_GROWTH_PHYTO = 1.0   # [1/yr] phyto 내재 성장률
-DEFAULT_GRAZING_RATE = 0.5   # [1/yr] 초식 포식률
-DEFAULT_PREDATION    = 0.3   # [1/yr] 상위 포식률
-DEFAULT_RESP_FRAC    = 0.5   # 호흡 CO₂ 비율
+from ._constants import (
+    ALPHA_CO2_ABS,
+    DEFAULT_GROWTH_PHYTO,
+    DEFAULT_GRAZING_RATE,
+    DEFAULT_PREDATION,
+    DEFAULT_RESP_FRAC,
+)
 
 
 # ── 스냅샷 ────────────────────────────────────────────────────────────────────
@@ -38,7 +37,7 @@ class TrophicState:
     phyto:        float   # 1차 생산자 (식물/플랑크톤) 바이오매스
     herbivore:    float   # 초식동물/소비자
     carnivore:    float   # 상위 포식자
-    co2_resp_yr:  float   # 연간 호흡으로 방출된 CO₂ 양 [kgC/m²/yr]
+    co2_resp_yr:  float   # (이 스텝에서의) 연간 환산 호흡 CO₂ 플럭스 [kgC/m²/yr]
 
     def summary(self) -> str:
         return (
@@ -101,15 +100,19 @@ class FoodWeb:
         herb_new  = max(0.0, herb  + grazing - pred)
         carn_new  = max(0.0, carn  + pred)
 
-        # 호흡 CO₂ (단순 비율)
-        delta_co2 = self.rf * (grazing + pred)
-        co2_new   = state.co2_resp_yr + delta_co2
+        # 호흡 CO₂ (단순 비율).
+        # 이번 스텝 동안 방출된 CO₂ 양을 연간 플럭스로 환산해서 저장한다.
+        if dt_yr <= 0.0:
+            co2_rate = 0.0
+        else:
+            delta_co2 = self.rf * (grazing + pred)  # [kgC/m² over dt]
+            co2_rate  = delta_co2 / dt_yr          # [kgC/m²/yr]
 
         return TrophicState(
             phyto       = phyto_new,
             herbivore   = herb_new,
             carnivore   = carn_new,
-            co2_resp_yr = co2_new,
+            co2_resp_yr = co2_rate,
         )
 
     def net_co2_flux(self, state: TrophicState, gpp: float) -> float:

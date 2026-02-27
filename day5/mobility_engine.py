@@ -27,13 +27,12 @@ from dataclasses import dataclass
 from typing import List, Optional
 import math
 
-
-# ── 속도 상수 ──────────────────────────────────────────────────────────────────
-
-R_SEED_DISPERSAL = 0.02   # [yr⁻¹] 씨드 분산률
-R_GUANO_N        = 0.005  # [g N m⁻² yr⁻¹] 구아노 N 기여 (per base_rate unit)
-R_PREDATION      = 0.1    # [yr⁻¹] phyto 포식률
-R_RESP_CO2       = 0.3    # CO₂ 호흡 계수 (per predation unit)
+from ._constants import (
+    R_SEED_DISPERSAL,
+    R_GUANO_N,
+    R_PREDATION,
+    R_RESP_CO2,
+)
 
 
 # ── 유틸리티 ───────────────────────────────────────────────────────────────────
