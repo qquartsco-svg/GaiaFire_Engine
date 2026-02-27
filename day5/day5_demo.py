@@ -28,6 +28,7 @@ try:
         make_bird_agent, make_fish_agent,
         SeedTransport, TransportKernel, make_transport,
         FoodWeb, TrophicState, make_food_web,
+        M_HERBIVORE, R_GUANO_N,
     )
 except ImportError:
     from day5 import (
@@ -35,6 +36,7 @@ except ImportError:
         make_bird_agent, make_fish_agent,
         SeedTransport, TransportKernel, make_transport,
         FoodWeb, TrophicState, make_food_web,
+        M_HERBIVORE, R_GUANO_N,
     )
 
 PASS = "✅ PASS"
@@ -261,19 +263,60 @@ def run_day5_demo():
     all_pass = all_pass and ok19 and ok20
 
     # ──────────────────────────────────────────────────────────────
+    print("\n  [V9] herbivore 사망률 — 장기 폭증 방지")
+
+    fw4 = make_food_web()
+    s_h = TrophicState(phyto=0.5, herbivore=0.5, carnivore=0.0, co2_resp_yr=0.0)
+    # GPP=0, carnivore=0 → predation 없음 → herbivore는 사망률만으로 감소
+    for _ in range(20):
+        s_h = fw4.step(s_h, env={"GPP": 0.0}, dt_yr=1.0)
+    ok21 = check(
+        s_h.herbivore < 0.5,
+        f"herbivore 20yr 후 감소: 0.500 → {s_h.herbivore:.4f}"
+    )
+    # M_HERBIVORE < M_CARNIVORE: herbivore가 더 천천히 감소
+    s_c2 = TrophicState(phyto=0.5, herbivore=0.0, carnivore=0.5, co2_resp_yr=0.0)
+    for _ in range(20):
+        s_c2 = fw4.step(s_c2, env={"GPP": 0.0}, dt_yr=1.0)
+    ok22 = check(
+        s_h.herbivore > s_c2.carnivore,
+        f"herbivore(mh={fw4.mh}) 감소 < carnivore(mc={fw4.mc}) 감소: "
+        f"{s_h.herbivore:.4f} > {s_c2.carnivore:.4f}"
+    )
+    all_pass = all_pass and ok21 and ok22
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n  [V10] guano 단위 — R_GUANO_N * rate = [g N/m²/yr]")
+
+    bird_g = make_bird_agent(n_bands=N_BANDS)
+    guano_vals = bird_g.guano_flux()
+    # guano[i] = R_GUANO_N * rate_i = 0.1 [g N·yr/m²] * 0.05 [1/yr] = 0.005 [g N/m²/yr]
+    expected_guano = R_GUANO_N * bird_g.base_rate
+    ok23 = check(
+        all(abs(g - expected_guano) < 1e-9 for g in guano_vals),
+        f"guano = R_GUANO_N({R_GUANO_N}) × base_rate({bird_g.base_rate}) "
+        f"= {expected_guano:.5f} g N/m²/yr (모든 밴드 동일)"
+    )
+    ok24 = check(
+        0.001 <= expected_guano <= 0.1,
+        f"guano 합리적 범위 [0.001, 0.1] g N/m²/yr: {expected_guano:.5f}"
+    )
+    all_pass = all_pass and ok23 and ok24
+
+    # ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 65)
     print(f"  결과: {'ALL PASS ✅' if all_pass else 'SOME FAIL ❌'}")
     print("=" * 65)
 
     print("\n  ── 다섯째날 파이프라인 ──────────────────────────────────────")
     print("  BirdAgent.migration_rates() → SeedTransport.step(B_pioneer)")
-    print("  BirdAgent.seed_flux()       → latitude_bands[i].pioneer += Δ")
-    print("  BirdAgent.guano_flux()      → nitrogen.N_soil[i] += Δ")
+    print("  BirdAgent.seed_flux()       → (보조) 이웃 유입만 (비보존)")
+    print("  BirdAgent.guano_flux()      → nitrogen.N_soil[i] += Δ  [g N/m²/yr]")
     print("  FishAgent.predation_flux()  → env['fish_predation'] → FoodWeb.phyto -= Δ")
-    print("  FoodWeb.co2_resp_yr         → atmosphere.CO₂ += Δ")
+    print("  FoodWeb.co2_resp_yr         → atmosphere.CO₂ += co2_resp_yr * dt_yr")
     print()
     print(f"  Bird base_rate={bird.base_rate}/yr  Fish base_rate={make_fish_agent().base_rate}/yr")
-    print(f"  carnivore 사망률={fw2.mc}/yr  극지 wrap-around=없음")
+    print(f"  carnivore 사망률={fw2.mc}/yr  herbivore 사망률={M_HERBIVORE}/yr  극지 wrap-around=없음")
 
     return all_pass
 

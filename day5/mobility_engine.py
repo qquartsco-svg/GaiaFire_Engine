@@ -121,10 +121,25 @@ class BirdAgent:
         pioneer: List[float],
         o2_by_band: Optional[List[float]] = None,
     ) -> List[float]:
-        """Loop F: 씨드 분산 플럭스 [/yr].
+        """Loop F: 씨드 유입 플럭스율 [pioneer_unit / yr].
 
-        flux[i→j] = r_seed * rate_i * pioneer[i]
-        반환: 각 밴드로 유입되는 씨드 flux (이웃 합산)
+        역할 (사용 경로):
+            이 메서드는 **SeedTransport.step() 과 함께 쓰는 것이 아니라**,
+            SeedTransport 없이 "얼마나 많은 씨드가 이웃에서 유입되는가"를
+            빠르게 추정하고 싶을 때 사용하는 보조 helper이다.
+
+            실제 보존형 transport(pioneer 총합 보존)가 필요하면
+            migration_rates() → SeedTransport.step(B_pioneer, dt_yr) 경로를 사용한다.
+
+        수식:
+            out_i  = R_SEED_DISPERSAL * rate_i * pioneer[i]   (밴드 i 방출량)
+            in_j  += out_i / len(neighbors_i)                 (이웃 j 유입량)
+
+        반환:
+            flux_in[j] : 밴드 j 로의 씨드 유입률 [pioneer_unit / yr].
+            주의: 방출 밴드 i 의 감소(-out_i)는 포함되지 않는다.
+            따라서 pioneer += flux_in * dt_yr 은 비보존이며, 총합이 증가한다.
+            비보존 동작이 필요할 때만 이 메서드를 사용할 것.
         """
         rates = self.migration_rates(o2_by_band)
         flux_in = [0.0] * self.n_bands
@@ -180,9 +195,20 @@ class FishAgent:
         return [self.r_pred * self.base_rate * p for p in phyto]
 
     def co2_resp_flux(self, phyto: List[float]) -> List[float]:
-        """Loop H: CO₂ 호흡 플럭스 [상대값/yr].
+        """FishAgent 경로 CO₂ 호흡 플럭스 [상대값/yr].
 
-        co2[i] = r_co2 * predation[i]
+        co2[i] = R_RESP_CO2 * predation[i]
+
+        ⚠️  이중 계산 주의:
+            FoodWeb.step() 에 env["fish_predation"]을 주입하면,
+            FoodWeb 내부에서 fish_pred 를 co2_resp_yr 에 이미 포함시킨다.
+            따라서 이 메서드와 FoodWeb.step() 을 동시에 사용하면
+            동일한 포식량이 CO₂에 두 번 반영된다.
+
+            권장 경로:
+                FoodWeb.step(env={"fish_predation": pred[i]}) 만 사용.
+                이 메서드(co2_resp_flux)는 FoodWeb 없이 단독으로 CO₂를
+                빠르게 추정할 때만 사용한다.
         """
         pred = self.predation_flux(phyto)
         return [self.r_co2 * p for p in pred]

@@ -36,6 +36,7 @@ from ._constants import (
     DEFAULT_PREDATION,
     DEFAULT_RESP_FRAC,
     M_CARNIVORE,
+    M_HERBIVORE,
 )
 from .mobility_engine import (
     BirdAgent,
@@ -66,6 +67,7 @@ __all__ = [
     "DEFAULT_PREDATION",
     "DEFAULT_RESP_FRAC",
     "M_CARNIVORE",
+    "M_HERBIVORE",
     # mobility
     "BirdAgent",
     "FishAgent",

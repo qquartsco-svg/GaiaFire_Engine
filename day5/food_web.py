@@ -8,10 +8,10 @@ Loop H 연결:
     phyto 감소 → CO₂ 흡수 감소 → 대기 CO₂ 증가
 
 수식:
-    dP/dt = GPP - grazing                      (phyto)
-    dH/dt = grazing - pred                     (herbivore)
+    dP/dt = GPP - grazing - fish_pred          (phyto)
+    dH/dt = grazing - pred - m_herb * H        (herbivore, 사망률 포함)
     dC/dt = pred - m_carn * C                  (carnivore, 사망률 포함)
-    co2_resp_yr = rf * (grazing + pred) / dt   (이 스텝 연간 환산 플럭스)
+    co2_resp_yr = rf * (grazing + pred + fish_pred * dt) / dt  (연간 환산 플럭스)
 
 FishAgent 연결 (Loop H):
     env["fish_predation"] = FishAgent.predation_flux()[band]
@@ -30,6 +30,7 @@ from ._constants import (
     DEFAULT_PREDATION,
     DEFAULT_RESP_FRAC,
     M_CARNIVORE,
+    M_HERBIVORE,
 )
 
 
@@ -78,12 +79,14 @@ class FoodWeb:
         predation_rate: float = DEFAULT_PREDATION,
         respiration_fraction: float = DEFAULT_RESP_FRAC,
         mortality_carnivore: float = M_CARNIVORE,
+        mortality_herbivore: float = M_HERBIVORE,
     ) -> None:
         self.gp = growth_rate_phyto
         self.gr = grazing_rate
         self.pr = predation_rate
         self.rf = respiration_fraction
         self.mc = mortality_carnivore
+        self.mh = mortality_herbivore
 
     def step(
         self,
@@ -110,16 +113,19 @@ class FoodWeb:
         # FishAgent 포식 (Loop H) — 외부에서 주입, 없으면 0
         fish_pred = float(env.get("fish_predation", 0.0))
 
-        # grazing / predation
+        # grazing / predation (Lotka-Volterra 형: rate * predator * prey * dt)
         grazing  = self.gr * herb * phyto * dt_yr
         pred     = self.pr * carn * herb  * dt_yr
 
-        # carnivore 사망률 (장기 폭증 방지)
+        # 사망률 항 (선형 밀도 의존: m * X * dt — 장기 폭증 방지)
+        herb_death = self.mh * herb * dt_yr
         carn_death = self.mc * carn * dt_yr
 
         # phyto: GPP 성장 - grazing - FishAgent 포식
         phyto_new = max(0.0, phyto + (gpp * dt_yr) - grazing - fish_pred * dt_yr)
-        herb_new  = max(0.0, herb  + grazing - pred)
+        # herbivore: grazing 유입 - predation 유출 - 자연 사망
+        herb_new  = max(0.0, herb  + grazing - pred - herb_death)
+        # carnivore: predation 유입 - 자연 사망
         carn_new  = max(0.0, carn  + pred - carn_death)
 
         # 호흡 CO₂ — 이 스텝 방출량을 연간 플럭스로 환산
@@ -138,17 +144,22 @@ class FoodWeb:
         )
 
     def net_co2_flux(self, state: TrophicState, gpp: float | None = None) -> float:
-        """Loop H: net CO₂ 플럭스 [상대값].
+        """Loop H: net CO₂ 플럭스 (호흡 − 흡수) [step()과 동일한 arbitrary 스케일].
 
-        음수 = 흡수, 양수 = 방출.
+        반환:
+            양수 = net 대기 방출 (호흡 > 흡수)
+            음수 = net 대기 흡수 (GPP 우세)
 
-        Args
-        ----
-        state: TrophicState
-            현재 먹이망 상태.
-        gpp: Optional[float]
-            1차 생산(GPP) [상대값]. 주어지면 CO₂ 흡수 항을
-            GPP와 phyto 둘 다에 비례하도록 스케일링한다.
+        단위 주의:
+            - state.co2_resp_yr 는 [kgC/m²/yr].
+            - co2_abs = ALPHA_CO2_ABS * phyto (* gpp) 는 phyto/gpp 가 arbitrary 단위.
+            - 두 항을 같은 단위로 맞추려면 ALPHA_CO2_ABS 를 캘리브레이션해야 함.
+            - 현 단계에서는 상대적 부호(net 방출/흡수 방향)만 사용하고,
+              대기 직접 연동 시 단위 변환 계수(kgC/m²/yr per unit)를 외부에서 곱할 것.
+
+        Args:
+            state: 현재 먹이망 상태.
+            gpp:   1차 생산(GPP) [arbitrary]. None 이면 phyto 만으로 흡수 추정.
         """
         if gpp is None:
             co2_abs = ALPHA_CO2_ABS * state.phyto
@@ -165,6 +176,7 @@ def make_food_web(
     predation_rate: float = DEFAULT_PREDATION,
     respiration_fraction: float = DEFAULT_RESP_FRAC,
     mortality_carnivore: float = M_CARNIVORE,
+    mortality_herbivore: float = M_HERBIVORE,
 ) -> FoodWeb:
     """기본 FoodWeb 인스턴스 생성 helper."""
     return FoodWeb(
@@ -173,6 +185,7 @@ def make_food_web(
         predation_rate=predation_rate,
         respiration_fraction=respiration_fraction,
         mortality_carnivore=mortality_carnivore,
+        mortality_herbivore=mortality_herbivore,
     )
 
 
