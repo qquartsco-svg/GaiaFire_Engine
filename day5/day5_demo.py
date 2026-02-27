@@ -26,6 +26,7 @@ try:
     from solar.day5 import (
         BirdAgent, FishAgent,
         make_bird_agent, make_fish_agent,
+        long_range_neighbors,
         SeedTransport, TransportKernel, make_transport,
         FoodWeb, TrophicState, make_food_web,
         M_HERBIVORE, R_GUANO_N,
@@ -34,6 +35,7 @@ except ImportError:
     from day5 import (
         BirdAgent, FishAgent,
         make_bird_agent, make_fish_agent,
+        long_range_neighbors,
         SeedTransport, TransportKernel, make_transport,
         FoodWeb, TrophicState, make_food_web,
         M_HERBIVORE, R_GUANO_N,
@@ -302,6 +304,143 @@ def run_day5_demo():
         f"guano 합리적 범위 [0.001, 0.1] g N/m²/yr: {expected_guano:.5f}"
     )
     all_pass = all_pass and ok23 and ok24
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n  [V11] 장거리 이동(long_range) — 전 지구 네트워킹")
+
+    # long_range_neighbors 구조 검증
+    lr_nb = long_range_neighbors(N_BANDS, max_jump=2)
+    ok25 = check(
+        len(lr_nb) == N_BANDS,
+        f"long_range_neighbors 길이 = {N_BANDS} ({len(lr_nb)})"
+    )
+    # 중위도 밴드 6 → ±2 이웃 [4,5,7,8] 4개
+    ok26 = check(
+        lr_nb[6] == [4, 5, 7, 8],
+        f"밴드 6 long_range 이웃 = [4,5,7,8] (±2) → {lr_nb[6]}"
+    )
+    # 극지 밴드 0 → [1, 2] (범위 내만)
+    ok27 = check(
+        lr_nb[0] == [1, 2],
+        f"밴드 0(남극) long_range 이웃 = [1,2] → {lr_nb[0]}"
+    )
+
+    # 장거리 vs 인접: 씨드가 더 빠르게 전파되는지 비교 (10yr)
+    B_short = [0.0] * N_BANDS;  B_short[6] = 1.0
+    B_long  = [0.0] * N_BANDS;  B_long[6]  = 1.0
+
+    bird_short = BirdAgent(n_bands=N_BANDS)                        # 기본: 인접만
+    bird_long  = BirdAgent(n_bands=N_BANDS, long_range_max_jump=2) # 장거리 ±2
+
+    for _ in range(10):
+        tr_s = make_transport(N_BANDS, bird_short.neighbors, bird_short.migration_rates())
+        tr_l = make_transport(N_BANDS, bird_long.neighbors,  bird_long.migration_rates())
+        B_short = tr_s.step(B_short, dt_yr=1.0)
+        B_long  = tr_l.step(B_long,  dt_yr=1.0)
+
+    # 극지(밴드 0) 도달량: 장거리가 인접보다 많아야 함
+    ok28 = check(
+        B_long[0] > B_short[0],
+        f"10yr 후 극지 도달: 장거리 {B_long[0]:.5f} > 인접 {B_short[0]:.5f}"
+    )
+    # 총합 보존 둘 다
+    ok29 = check(
+        abs(sum(B_short) - 1.0) < 1e-9 and abs(sum(B_long) - 1.0) < 1e-9,
+        f"장거리/인접 모두 총합 보존 (short={sum(B_short):.6f}, long={sum(B_long):.6f})"
+    )
+    all_pass = all_pass and ok25 and ok26 and ok27 and ok28 and ok29
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n  [V12] 도메인 분리 — Bird 육상/Fish 해양")
+
+    # 반반 시나리오: 밴드 0~5 = 육지, 밴드 6~11 = 해양
+    land_frac = [1.0] * 6 + [0.0] * 6   # 0~5 육지, 6~11 해양
+
+    # Bird: 육지(0~5)에서만 활동 → 해양 밴드 rate=0
+    bird_dom = make_bird_agent(n_bands=N_BANDS)
+    rates_land = bird_dom.migration_rates(land_fraction_by_band=land_frac)
+    ok30 = check(
+        all(rates_land[i] > 0 for i in range(6)),
+        f"Bird: 육지 밴드(0~5) rate > 0 (mean={sum(rates_land[:6])/6:.4f})"
+    )
+    ok31 = check(
+        all(rates_land[i] == 0.0 for i in range(6, N_BANDS)),
+        f"Bird: 해양 밴드(6~11) rate = 0 (도메인 분리)"
+    )
+
+    # Fish: 해양(6~11)에서만 활동 → 육지 밴드 rate=0
+    fish_dom = make_fish_agent(n_bands=N_BANDS)
+    rates_sea = fish_dom.migration_rates(land_fraction_by_band=land_frac)
+    ok32 = check(
+        all(rates_sea[i] == 0.0 for i in range(6)),
+        f"Fish: 육지 밴드(0~5) rate = 0 (도메인 분리)"
+    )
+    ok33 = check(
+        all(rates_sea[i] > 0 for i in range(6, N_BANDS)),
+        f"Fish: 해양 밴드(6~11) rate > 0 (mean={sum(rates_sea[6:])/6:.4f})"
+    )
+
+    # 구아노: 육지 밴드에서만 발생, 해양 밴드 = 0
+    guano_dom = bird_dom.guano_flux(land_fraction_by_band=land_frac)
+    ok34 = check(
+        all(guano_dom[i] > 0 for i in range(6)) and
+        all(guano_dom[i] == 0.0 for i in range(6, N_BANDS)),
+        f"구아노: 육지 >0, 해양 =0  "
+        f"(land_mean={sum(guano_dom[:6])/6:.5f}, sea_mean={sum(guano_dom[6:])/6:.5f})"
+    )
+    all_pass = all_pass and ok30 and ok31 and ok32 and ok33 and ok34
+
+    # ──────────────────────────────────────────────────────────────
+    print("\n  [V13] biomass 스케일링 — 대형 생명체 개체수 비례 플럭스")
+
+    # 시나리오: 밴드 6(적도)에만 새 무리 집중 (biomass=5.0), 나머지=1.0
+    biomass_bird = [1.0] * N_BANDS
+    biomass_bird[6] = 5.0   # 적도 새 무리 5배
+
+    pioneer_b = [0.3] * N_BANDS
+    bird_b = make_bird_agent(n_bands=N_BANDS)
+
+    seed_no_bm = bird_b.seed_flux(pioneer_b)                         # biomass 없음
+    seed_with_bm = bird_b.seed_flux(pioneer_b, biomass_by_band=biomass_bird)  # biomass 적용
+
+    # 적도(밴드 6)에서 이웃으로 나가는 플럭스: biomass 5배면 이웃 유입도 5배
+    ok35 = check(
+        seed_with_bm[5] > seed_no_bm[5] and seed_with_bm[7] > seed_no_bm[7],
+        f"밴드 6 이웃 유입: biomass 적용 시 증가 "
+        f"(band5: {seed_no_bm[5]:.5f}→{seed_with_bm[5]:.5f}, "
+        f"band7: {seed_no_bm[7]:.5f}→{seed_with_bm[7]:.5f})"
+    )
+    # 밴드 5 유입 = 밴드 6(biomass=5) 방출분 + 밴드 4(biomass=1) 방출분
+    # biomass=1 일 때: in_5 = out_6/2 + out_4/2  (밴드 6,4 각각 이웃 2개)
+    # biomass 적용:    in_5 = out_6*5/2 + out_4*1/2  → 비율 = (5/2 + 1/2)/(1/2 + 1/2) = 3.0
+    expected_ratio = (5.0 / 2 + 1.0 / 2) / (1.0 / 2 + 1.0 / 2)
+    ok36 = check(
+        abs(seed_with_bm[5] / seed_no_bm[5] - expected_ratio) < 0.01,
+        f"밴드 5 유입 비율 = {expected_ratio:.1f}x "
+        f"(band6×5/2 + band4×1/2) / (band6×1/2 + band4×1/2) "
+        f"→ 실측={seed_with_bm[5]/seed_no_bm[5]:.3f}"
+    )
+
+    # Fish biomass: 물고기 많은 밴드에서 포식량 비례 증가
+    biomass_fish = [1.0] * N_BANDS
+    biomass_fish[3] = 3.0   # 밴드 3에 물고기 집중
+    phyto_b = [0.5] * N_BANDS
+    fish_b = make_fish_agent(n_bands=N_BANDS)
+
+    pred_no_bm   = fish_b.predation_flux(phyto_b)
+    pred_with_bm = fish_b.predation_flux(phyto_b, biomass_by_band=biomass_fish)
+
+    ok37 = check(
+        abs(pred_with_bm[3] / pred_no_bm[3] - 3.0) < 0.01,
+        f"Fish 밴드 3: biomass 3배 → 포식량 3배 "
+        f"(비율={pred_with_bm[3]/pred_no_bm[3]:.3f})"
+    )
+    ok38 = check(
+        all(abs(pred_with_bm[i] - pred_no_bm[i]) < 1e-9
+            for i in range(N_BANDS) if i != 3),
+        f"Fish biomass=1 밴드: 포식량 변화 없음 (비-3밴드 동일)"
+    )
+    all_pass = all_pass and ok35 and ok36 and ok37 and ok38
 
     # ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 65)
