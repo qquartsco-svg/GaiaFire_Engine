@@ -22,7 +22,7 @@ v1.1 (버그 수정):
     - nutrient → phyto 성장 연결: Michaelis-Menten f(C_surface) 추가
     - 단위 정합: upwelling flux를 [μmol/L/yr]로 통일
     - NUTRIENT_TO_C (레드필드) 사용하여 영양염 uptake 계산
-    - TidalField.C_surface 공유: update_surface_nutrient() 제공
+    - TidalField.C_surface 공유: tf.C_surface = ocean.C_surface 패턴 (별도 함수 없음)
 """
 
 from __future__ import annotations

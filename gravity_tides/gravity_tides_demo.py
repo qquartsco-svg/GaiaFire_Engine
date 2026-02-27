@@ -12,13 +12,23 @@ import sys
 import os
 import math
 
-_ENGINE_ROOT = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, _ENGINE_ROOT)
+# 실행 위치 자동 감지: CookiieBrain 패키지 or GaiaFire_Engine 독립 실행 둘 다 지원
+_HERE   = os.path.dirname(__file__)                  # gravity_tides/
+_PARENT = os.path.dirname(_HERE)                     # solar/ or GaiaFire_Engine/
+_ROOT   = os.path.dirname(_PARENT)                   # CookiieBrain/ or 상위
+sys.path.insert(0, _ROOT)   # CookiieBrain 루트 (solar 패키지 접근)
+sys.path.insert(0, _PARENT) # GaiaFire_Engine 루트 (gravity_tides 직접 접근)
 
-from gravity_tides import (
-    TidalField, make_tidal_field,
-    OceanNutrients, make_ocean_nutrients,
-)
+try:
+    from solar.gravity_tides import (
+        TidalField, make_tidal_field,
+        OceanNutrients, make_ocean_nutrients,
+    )
+except ImportError:
+    from gravity_tides import (                      # GaiaFire_Engine 독립 실행
+        TidalField, make_tidal_field,
+        OceanNutrients, make_ocean_nutrients,
+    )
 
 PASS = "✅ PASS"
 FAIL = "❌ FAIL"
