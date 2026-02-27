@@ -1,9 +1,9 @@
-"""fire_risk.py — 위도×계절×생태계 산불 위험도 ODE (Phase 7f)
+"""fire_risk.py — 위도×계절×생태계 산불 위험도 ODE (Phase 7f → v1.1)
 
 설계 철학: 세차운동·토양·항상성과 동일
   입력: 물리 환경값 (O2, T, W, B_wood, phi_deg, time_yr)
   출력: fire_risk ∈ [0,1] — 산불 발생 확률장 (viability field의 역)
-        fire_intensity — 실제 탄소·O₂ 소비율 [kg C/m²/yr]
+        fire_intensity       — 실제 탄소 소비율 [kg C/m²/yr]
 
 핵심 물리 (Bowman 2009; Pyne 2012; Lenton & Watson 2000):
   산불 3요소 = 산소 + 연료 + 열원
@@ -21,6 +21,15 @@
   fire_risk 높은 위도 = 현재 O₂ 과잉 → 산불로 소비해야 균형
   fire_risk 낮은 위도 = O₂ 정상 or 습함 → 산불 불필요
   전지구 fire_risk 가중평균 = Gaia O₂ attractor 복원력 지표
+
+단위 설계 원칙 (v1.1):
+  fire_risk.py 는 "로컬 플럭스"까지만 책임진다.
+    fire_intensity        [kg C / m² / yr]  ← 탄소 소비
+    fire_o2_sink_kgO2     [kg O2 / m² / yr] ← O₂ 소비 (C + O₂ → CO₂, 32/12)
+    fire_co2_source_kgC   [kg C / m² / yr]  ← CO₂ 방출 (= fire_intensity)
+
+  "전지구 O₂ fraction 변화량" 변환은 Gaia(대기) 모듈이 담당:
+    ΔO2_frac = -(Σ fire_o2_sink_kgO2 × area_weight × dt) / KG_O2_PER_FRAC
 
 독립 모듈 원칙:
   solar/fire/는 solar/biosphere/에 의존하지 않음
@@ -57,6 +66,9 @@ DRY_AMPLITUDE_POLAR     = 0.1   # 극지: 거의 없음 (눈/얼음)
 # 산불 강도 계수 (탄소 소비)
 K_FIRE_INTENSITY = 2.0    # [kg C/m²/yr] 최대 산불 탄소 소비율
                            # 관측: 보레알 산불 ~0.5~3 kg C/m²/yr
+
+# 산소 질량비 (탄소 연소: C + O₂ → CO₂)
+O2_TO_C_MASS_RATIO = 32.0 / 12.0   # [kg O₂ / kg C]
 
 EPS = 1e-30
 
@@ -99,15 +111,13 @@ def f_temperature(T: float) -> float:
       T < T_FIRE_MIN → 0 (얼음/눈)
       T = T_FIRE_OPT → 1 (최적 건조)
       T > T_FIRE_MAX → 감소 (드문 케이스)
+
+    설계 주석: 삼각형 게이트는 기능적으로 clamp/relu 조합과 동일.
+    확장 시 연속 형태로 교체 가능 (relu + sigmoid).
     """
-    if T < T_FIRE_MIN:
-        return 0.0
-    elif T <= T_FIRE_OPT:
-        return (T - T_FIRE_MIN) / (T_FIRE_OPT - T_FIRE_MIN + EPS)
-    elif T <= T_FIRE_MAX:
-        return (T_FIRE_MAX - T) / (T_FIRE_MAX - T_FIRE_OPT + EPS)
-    else:
-        return 0.0
+    rise = max(0.0, T - T_FIRE_MIN) / (T_FIRE_OPT - T_FIRE_MIN + EPS)
+    fall = max(0.0, T_FIRE_MAX - T) / (T_FIRE_MAX - T_FIRE_OPT + EPS)
+    return min(rise, fall, 1.0)
 
 
 def f_dryness(W: float) -> float:
@@ -131,7 +141,7 @@ def dry_season_modifier(phi_deg: float, time_yr: float) -> float:
     """
     abs_phi = abs(phi_deg)
 
-    # 위도별 건기 진폭
+    # 위도별 건기 진폭 (연속 함수로 확장 가능)
     if abs_phi < 30.0:
         amplitude = DRY_AMPLITUDE_TROPICAL
     elif abs_phi < 60.0:
@@ -142,14 +152,12 @@ def dry_season_modifier(phi_deg: float, time_yr: float) -> float:
     # 북반구: 여름(t=0.5) 건기 최대
     #   sin(2π(t - 0.25)) → t=0.5일 때 sin(π/2)=1 → dry_factor 최대
     # 남반구: 겨울(t=0.0) 건기 최대
-    #   sin(2π(t - 0.75)) → t=0.0일 때 sin(-3π/2)=1 → dry_factor 최대
     if phi_deg >= 0:
         phase = 0.25
     else:
         phase = 0.75
 
     dry_factor = amplitude * math.sin(2.0 * math.pi * (time_yr - phase))
-    # dry_factor > 0 → 건기 (수분 감소)
     return max(0.0, min(1.0, 1.0 - dry_factor))
 
 
@@ -159,25 +167,35 @@ def dry_season_modifier(phi_deg: float, time_yr: float) -> float:
 class FireRiskState:
     """단일 위도 밴드의 산불 위험도 상태.
 
-    fire_risk ∈ [0,1]: 산불 발생 확률 (0=없음, 1=확실)
-    fire_intensity: 실제 탄소 소비율 [kg C/m²/yr]
-    fire_o2_sink:   O₂ 소비율 [mol/mol/yr]
-    fire_co2_source: CO₂ 방출률 [kg C/m²/yr]
+    단위 원칙 (v1.1):
+      fire_risk ∈ [0,1]               : 산불 발생 확률
+      fire_intensity       [kg C/m²/yr]: 탄소 소비율 (로컬 플럭스)
+      fire_o2_sink_kgO2    [kg O2/m²/yr]: O₂ 소비율 (로컬 플럭스)
+        = fire_intensity × (32/12)
+      fire_co2_source_kgC  [kg C/m²/yr]: CO₂ 방출률 (= fire_intensity)
+
+    전지구 O₂ fraction 변환은 Gaia(대기) 모듈이 담당:
+      ΔO2_frac = -(Σ fire_o2_sink_kgO2 × area_weight × dt) / KG_O2_PER_FRAC
 
     항상성 해석:
       fire_risk → Gaia O₂ attractor 복원력 지표
       높은 fire_risk 위도 = "O₂ 항상성이 복원되어야 할 지점"
+
+    인지 대응 (ForgetEngine 연결 시):
+      fire_risk    ↔ forget_risk    : 시냅스 가지치기 확률
+      fire_intensity ↔ forget_rate  : 기억 소거율 [synapses/s]
+      fire_o2_sink_kgO2 ↔ atp_drain: 에너지 소비율 [ATP/s]
     """
-    phi_deg:         float
-    time_yr:         float
-    fire_risk:       float   # [0,1] 종합 위험도
-    f_O2:            float   # O₂ 기여
-    f_fuel:          float   # 연료 기여
-    f_temp:          float   # 온도 기여
-    f_dry:           float   # 건조 기여
-    fire_intensity:  float   # [kg C/m²/yr] 탄소 소비
-    fire_o2_sink:    float   # [mol/mol/yr] O₂ 소비
-    fire_co2_source: float   # [kg C/m²/yr] CO₂ 방출
+    phi_deg:              float
+    time_yr:              float
+    fire_risk:            float   # [0,1] 종합 위험도
+    f_O2:                 float   # O₂ 기여
+    f_fuel:               float   # 연료 기여
+    f_temp:               float   # 온도 기여
+    f_dry:                float   # 건조 기여
+    fire_intensity:       float   # [kg C/m²/yr] 탄소 소비 (로컬)
+    fire_o2_sink_kgO2:    float   # [kg O2/m²/yr] O₂ 소비 (로컬)
+    fire_co2_source_kgC:  float   # [kg C/m²/yr] CO₂ 방출 (로컬)
 
 
 # ── 핵심 함수 ─────────────────────────────────────────────────────────────────
@@ -196,6 +214,11 @@ def compute_fire_risk(
 
     fire_risk = f_O2 × f_fuel × f_temp × f_dry_effective
     모든 게이트 연속 곱 — no if-else (세차·토양·viability와 동일 구조)
+
+    출력 단위:
+      fire_intensity      [kg C/m²/yr]  — 로컬 탄소 플럭스
+      fire_o2_sink_kgO2   [kg O2/m²/yr] — 로컬 O₂ 플럭스
+      fire_co2_source_kgC [kg C/m²/yr]  — 로컬 CO₂ 플럭스
     """
     # 1. O₂ 게이트
     fo2  = f_O2_fire(O2)
@@ -214,23 +237,20 @@ def compute_fire_risk(
     # 5. 종합 위험도 (연속 게이트 곱)
     fire_risk = fo2 * ffuel * ftemp * fdry
 
-    # 6. 산불 강도 → 실제 소비율
-    fire_intensity  = K_FIRE_INTENSITY * fire_risk   # [kg C/m²/yr]
-    # O₂ 소비: C + O₂ → CO₂  (몰비 1:1, 질량비 12:32)
-    fire_o2_sink    = fire_intensity * (32.0 / 12.0) / (1.2e18 / 1.48e14 + EPS)
-    # 단순화: O₂ mol/mol 기준 (대기 O₂ 총량 기준 정규화)
-    # KG_O2_PER_FRAC = 1.2e18 kg, LAND_AREA = 1.48e14 m²
-    fire_co2_source = fire_intensity   # [kg C/m²/yr] (탄소 보존)
+    # 6. 로컬 플럭스 계산 (전지구 상수 없음 — v1.1 핵심 변경)
+    fire_intensity     = K_FIRE_INTENSITY * fire_risk   # [kg C/m²/yr]
+    fire_o2_sink_kgO2  = fire_intensity * O2_TO_C_MASS_RATIO  # [kg O2/m²/yr]
+    fire_co2_source_kgC = fire_intensity                       # [kg C/m²/yr]
 
     return FireRiskState(
-        phi_deg        = phi_deg,
-        time_yr        = time_yr,
-        fire_risk      = fire_risk,
-        f_O2           = fo2,
-        f_fuel         = ffuel,
-        f_temp         = ftemp,
-        f_dry          = fdry,
-        fire_intensity = fire_intensity,
-        fire_o2_sink   = fire_o2_sink,
-        fire_co2_source= fire_co2_source,
+        phi_deg             = phi_deg,
+        time_yr             = time_yr,
+        fire_risk           = fire_risk,
+        f_O2                = fo2,
+        f_fuel              = ffuel,
+        f_temp              = ftemp,
+        f_dry               = fdry,
+        fire_intensity      = fire_intensity,
+        fire_o2_sink_kgO2   = fire_o2_sink_kgO2,
+        fire_co2_source_kgC = fire_co2_source_kgC,
     )
