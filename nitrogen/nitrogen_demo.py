@@ -4,18 +4,38 @@ V1: 질소고정 속도 — O₂ 억제, 온도/수분 팩터
 V2: 토양 질소 항상성 — pioneer 증가 → N_soil 증가 → uptake 균형
 V3: 혐기성 탈질 — O₂=0% 조건에서 탈질 지배
 V4: 150yr 시계열 — pioneer 성장에 따른 N_soil 진화
+
+실행 환경 (3가지 모두 지원):
+    1. CookiieBrain:    python solar/nitrogen/nitrogen_demo.py
+    2. GaiaFire_Engine: python nitrogen/nitrogen_demo.py
+    3. 완전 평면:       python nitrogen_demo.py  (같은 폴더에 파일 있음)
 """
 
 import sys
 import os
 
-_ENGINE_ROOT = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, _ENGINE_ROOT)
+# 실행 위치 자동 감지 — 세 경로 등록
+_HERE   = os.path.dirname(os.path.abspath(__file__))  # 이 파일이 있는 폴더
+_PARENT = os.path.dirname(_HERE)                       # 상위 (solar/ or GaiaFire_Engine/)
+_ROOT   = os.path.dirname(_PARENT)                     # 최상위 (CookiieBrain/ or 상위)
+for _p in (_HERE, _PARENT, _ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-from nitrogen import (
-    NitrogenFixation, make_fixation_engine,
-    NitrogenCycle, make_nitrogen_cycle,
-)
+try:
+    from solar.nitrogen import (        # CookiieBrain 패키지 구조
+        NitrogenFixation, make_fixation_engine,
+        NitrogenCycle, make_nitrogen_cycle,
+    )
+except ImportError:
+    try:
+        from nitrogen import (          # GaiaFire_Engine / 상위 폴더 구조
+            NitrogenFixation, make_fixation_engine,
+            NitrogenCycle, make_nitrogen_cycle,
+        )
+    except ImportError:
+        from fixation import NitrogenFixation, make_fixation_engine   # 완전 평면
+        from cycle import NitrogenCycle, make_nitrogen_cycle
 
 PASS = "✅ PASS"
 FAIL = "❌ FAIL"
@@ -75,9 +95,7 @@ def run_nitrogen_demo():
     nc_high = make_nitrogen_cycle(N_soil_init=15.0)
 
     # 저질소: O₂=5%, pioneer 많고, GPP 낮아 탈질보다 고정 우세 조건
-    # f_O2_denitrify = 1 - 0.05/0.21 = 0.762 → denitr = 0.05×0.5×0.762 = 0.019
-    # N_fix(B=1.0, O2=5%) ≈ 0.005 × 1.0 × 0.092 × 1.0 × 0.625 = 0.00029 → 부족
-    # → 대신 "저질소 → 절대적 최솟값 위에서 안정"을 검증
+    # → "저질소 → 절대적 최솟값 위에서 안정"을 검증
     for _ in range(100):
         nc_low.step(dt=1.0, B_pioneer=0.3, GPP_rate=5.0,
                     O2_frac=0.05, T_K=298.0, W_moisture=0.3)

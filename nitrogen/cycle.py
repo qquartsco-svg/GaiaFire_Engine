@@ -8,10 +8,15 @@
 수식 (DAY4_DESIGN.md):
     dN_soil/dt = N_fix + N_decomp - N_uptake - N_denitrify - N_leach
 
-    N_uptake    = K_uptake × N_soil × GPP_rate    [g N m⁻² yr⁻¹]
-    N_denitrify = K_denit × N_soil × (1 - f_O2)  [혐기성 조건]
-    N_decomp    = K_decomp × N_litter × f_T × f_W  [낙엽분해]
-    N_leach     = K_leach × N_soil × W_moisture   [수분 침출]
+    GPP_norm    = clamp(GPP_rate / GPP_REF, 0, 1)         [무차원, GPP_REF=100 gC/m²/yr]
+    N_uptake    = K_uptake × N_soil × GPP_norm             [g N m⁻² yr⁻¹]
+    N_denitrify = K_denit × N_soil × f_O2_denitrify(O2)   [혐기성 조건]
+    N_decomp    = K_decomp × N_litter × f_T(T_K) × f_W(W) [낙엽분해]
+    N_leach     = K_leach × N_soil × W_moisture            [수분 침출]
+
+    f_T = Q10^((T_K - T_REF) / 10)  [Q10=2.0, T_REF=288.0K]
+    f_W = 4 × W × (1 - W)           [포물선, 최대 W=0.5]
+    f_O2_denitrify = max(0, 1 - O2_frac / O2_REF)
 
 항상성:
     N_soil↑ → uptake↑ → N_soil↓  (음의 피드백)
@@ -22,6 +27,10 @@ v1.0 (넷째날 순환 1-B):
     NitrogenCycle: 질소순환 통합 ODE
     NitrogenState: 질소 상태 스냅샷
     make_nitrogen_cycle(): 기본 지구 파라미터
+
+v1.1:
+    - 하드코딩 상수 분리: GPP_REF, Q10_DECOMP, T_REF_DECOMP
+    - docstring 수식 실제 구현(GPP_norm 정규화)과 일치
 """
 
 from __future__ import annotations
@@ -30,7 +39,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .fixation import NitrogenFixation, FixationResult, make_fixation_engine
+from fixation import NitrogenFixation, FixationResult, make_fixation_engine
 
 # ── 속도 상수 ─────────────────────────────────────────────────────────────────
 
@@ -58,6 +67,15 @@ N_LITTER_MAX = 50.0      # [g N m⁻²] 낙엽 최대
 
 # O₂ 팩터 참조값
 O2_REF = 0.21            # 현재 대기 O₂
+
+# GPP 정규화 기준 (N_uptake 계산용)
+GPP_REF = 100.0          # [g C m⁻² yr⁻¹] GPP_norm = clamp(GPP_rate / GPP_REF, 0, 1)
+                          # 현재 지구 육상 생태계 평균 GPP ~500~1000 gC/m²/yr
+                          # 여기서는 질소 흡수 활성 정규화 기준 (낮은 쪽 기준)
+
+# 분해 온도 팩터 상수
+Q10_DECOMP   = 2.0       # [-] Q10 계수 (온도 10K 상승 시 분해 속도 2배)
+T_REF_DECOMP = 288.0     # [K] 기준 온도 (15°C = 현재 지구 평균 지표)
 
 EPS = 1e-30
 
@@ -172,14 +190,14 @@ class NitrogenCycle:
 
     @staticmethod
     def f_T_decomp(T_K: float) -> float:
-        """분해 온도 팩터 (Q10 = 2).
+        """분해 온도 팩터.
 
-        f_T = Q10^((T_K - T_ref)/10)  (T_ref = 288K)
+        f_T = Q10_DECOMP^((T_K - T_REF_DECOMP) / 10)
         [0.1, 3.0] 클램프
+
+        Q10_DECOMP=2.0, T_REF_DECOMP=288K (모듈 상수)
         """
-        Q10 = 2.0
-        T_REF = 288.0
-        factor = Q10 ** ((T_K - T_REF) / 10.0)
+        factor = Q10_DECOMP ** ((T_K - T_REF_DECOMP) / 10.0)
         return max(0.1, min(3.0, factor))
 
     @staticmethod
@@ -227,8 +245,8 @@ class NitrogenCycle:
         N_decomp = self.K_decomp * self.N_litter * f_t * f_w
 
         # 3. 식물 흡수 (N_soil × uptake × GPP 활성)
-        # GPP_rate를 [0~1] 상대값으로 정규화 (기준: 100 g C m⁻² yr⁻¹)
-        GPP_norm = min(1.0, max(0.0, GPP_rate / 100.0))
+        # GPP_rate를 [0~1] 상대값으로 정규화 (기준: GPP_REF = 100 g C m⁻² yr⁻¹)
+        GPP_norm = min(1.0, max(0.0, GPP_rate / GPP_REF))
         N_uptake = self.K_uptake * self.N_soil * GPP_norm
 
         # 4. 탈질 (혐기성)
@@ -300,4 +318,7 @@ __all__ = [
     "K_UPTAKE",
     "K_DENITRIFY",
     "K_DECOMP",
+    "GPP_REF",
+    "Q10_DECOMP",
+    "T_REF_DECOMP",
 ]
