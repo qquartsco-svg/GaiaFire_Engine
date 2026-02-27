@@ -94,6 +94,9 @@ class SeedTransport:
             raise ValueError(f"len(B)={len(B)} != n_bands={n}")
 
         current = list(B)
+        # 입력 값은 비음수가 되어야 한다 (seed/N_soil 등).
+        if any(b < 0.0 for b in current):
+            raise ValueError("SeedTransport.step: B contains negative values")
         delta   = [0.0] * n
 
         for i in range(n):
@@ -110,7 +113,16 @@ class SeedTransport:
             for j in nb:
                 delta[j] += share
 
-        return [max(0.0, current[i] + delta[i]) for i in range(n)]
+        new_vals: List[float] = []
+        for i in range(n):
+            val = current[i] + delta[i]
+            # 이론적으로는 val >= 0 이어야 한다.
+            # 부동소수 오차를 고려해 작은 음수만 0으로 클램프하고,
+            # 큰 음수는 버그로 간주해 예외를 던진다.
+            if val < -1e-12:
+                raise ValueError(f"SeedTransport.step: negative value at band {i}: {val}")
+            new_vals.append(0.0 if val < 0.0 else val)
+        return new_vals
 
     def step_with_source(
         self,
