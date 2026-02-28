@@ -46,11 +46,12 @@ class SelectionEngine:
     ) -> SelectionResult:
         """적합도 비례 선택 (roulette wheel). n_select 명 선택."""
         rng = rng or random.Random()
+        n_pop = len(population)
         fits = [self.fitness(p, env) for p in population]
         total = sum(max(0.0, f) for f in fits)
-        if total <= 0:
-            # 균등
-            idx = rng.sample(range(len(population)), min(n_select, len(population)))
+        if total <= 0 or n_pop == 0:
+            # 균등 무작위 (중복 허용) — roulette wheel 의미 유지
+            idx = [rng.randint(0, max(0, n_pop - 1)) for _ in range(n_select)] if n_pop > 0 else []
             return SelectionResult(survivors=idx, fitness=fits)
         probs = [max(0.0, f) / total for f in fits]
         survivors: List[int] = []

@@ -79,6 +79,13 @@ class SpeciesEngine:
         total = sum(N)
         gpp_scale = float(env.get("GPP_scale", 1.0))  # 0~1 자원 제한
 
+        # graph 크기 검증: 크기 불일치 시 경고 (silent failure 방지)
+        if graph is not None and graph.n_species != n:
+            raise ValueError(
+                f"InteractionGraph.n_species({graph.n_species}) != "
+                f"len(state.n_species)({n}). graph와 population 크기가 일치해야 합니다."
+            )
+
         new_n: List[float] = []
         for s in range(n):
             Ns = N[s]
@@ -89,20 +96,20 @@ class SpeciesEngine:
             # ── 경쟁 (Lotka-Volterra C[s][j] 행렬) ───────────
             if graph is not None:
                 C_row = graph.competition[s]  # C[s][j], j=0..n-1
-                competition = Ns * sum(C_row[j] * N[j] for j in range(min(n, graph.n_species)))
+                competition = Ns * sum(C_row[j] * N[j] for j in range(n))
             else:
                 competition = self.competition_strength * Ns * total
 
             # ── 포식 손실: Σ_pred A[pred][s] · N_pred · Ns ──
             predation_loss = 0.0
             if graph is not None:
-                for pred in range(min(n, graph.n_species)):
+                for pred in range(n):
                     predation_loss += graph.predation[pred][s] * N[pred] * Ns
 
             # ── 포식 이득: η · Σ_prey A[s][prey] · Ns · N_prey ─
             predation_gain = 0.0
             if graph is not None:
-                for prey in range(min(n, graph.n_species)):
+                for prey in range(n):
                     predation_gain += (
                         self.predation_efficiency
                         * graph.predation[s][prey]

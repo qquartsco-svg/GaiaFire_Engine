@@ -1,6 +1,6 @@
 """day6_demo.py — Day6 검증 스위트
 
-V1~V14 ALL PASS 목표.
+V1~V17 ALL PASS 목표.
 
 V1  genome_state    recombine + mutate 기본 동작
 V2  genome_state    child traits 길이 = 부모 길이
@@ -16,6 +16,9 @@ V11 mutation_engine binary_convergence_pressure → via_recombination=True
 V12 species_engine  graph 없음 폴백: 성장 > 경쟁 → N 증가
 V13 species_engine  graph 연결: competition 행렬 C[i][j] 반영
 V14 niche_model     자원 충분 → 점유 증가 / 자원 부족 → 비례 배분
+V15 selection       n_select > population 크기 → 오류 없이 처리 (rng.randint 버그 수정 검증)
+V16 species_engine  graph 크기 불일치 → ValueError 발생
+V17 niche_model     capacity=0 셀 → 전 종 점유 0
 """
 
 from __future__ import annotations
@@ -246,6 +249,40 @@ ok("V14b 자원 부족 → 총 점유 ≤ capacity",
 ok("V14c 자원 부족: 많은 종이 비례적으로 더 많이 점유",
    new1.occupancy[0] > new1.occupancy[1],
    f"{new1.occupancy}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# V15 ~ V17  안정성·확장성 검증 (버그 수정 결과 확인)
+# ════════════════════════════════════════════════════════════════════════════
+print("\n── V15~V17  안정성·확장성 ──────────────────────────────────────────")
+
+# V15: n_select > population 크기 → rng.sample 버그 수정 검증
+sel_zero = make_selection_engine(fitness_fn=lambda g, e: 0.0)  # 모든 적합도 0 → total=0 경로
+pop_small = [GenomeState(traits=[1.0]), GenomeState(traits=[2.0])]
+res15 = sel_zero.select(pop_small, {}, n_select=10, rng=_rng)
+ok("V15 n_select(10) > pop(2), 전 적합도=0 → 오류 없이 10개 반환",
+   len(res15.survivors) == 10 and all(0 <= i < 2 for i in res15.survivors),
+   f"survivors={res15.survivors}")
+
+# V16: species_engine — graph 크기 불일치 → ValueError
+se3 = make_species_engine(n_traits=3)
+g_wrong = make_interaction_graph(n_species=2)  # 크기 2 ≠ state 크기 3
+s_wrong = SpeciesState(n_species=[1.0, 2.0, 3.0])
+raised_v16 = False
+try:
+    se3.step(s_wrong, {}, dt_yr=1.0, graph=g_wrong)
+except ValueError:
+    raised_v16 = True
+ok("V16 graph 크기 불일치 → ValueError 발생", raised_v16)
+
+# V17: niche_model — capacity=0 셀 → 전 종 점유 0
+band_zero = NicheState(band_idx=0, land_fraction=0.0,
+                       resource_capacity=100.0, occupancy=[5.0, 3.0])
+nm2 = make_niche_model(n_bands=1, n_species=2, growth_rate=0.5)
+res17 = nm2.step([band_zero], [{"GPP_scale": 1.0}], dt_yr=1.0)
+ok("V17 land_fraction=0 → 전 종 점유 = 0",
+   all(o == 0.0 for o in res17[0].occupancy),
+   f"occupancy={res17[0].occupancy}")
 
 
 # ════════════════════════════════════════════════════════════════════════════

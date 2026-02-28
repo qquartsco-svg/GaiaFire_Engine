@@ -9,8 +9,12 @@ Day6 = 이동으로 연결된 biosphere 위에서
     Day6: competition + mutation + recombination (진화 혼란 → 재생산 OS → 질서)
 
 핵심 방정식:
-    dN_s/dt = growth - competition + mutation + selection
+    dN_s/dt = r·N_s·gpp
+              − Σ_j C[s][j]·N_s·N_j          (경쟁, 행렬)
+              − Σ_pred A[pred][s]·N_pred·N_s  (포식 손실)
+              + η·Σ_prey A[s][prey]·N_s·N_prey (포식 이득)
     Genome_child = recombine(Genome_A, Genome_B) + mutation
+    μ_eff = base_rate × P_contact(ρ) × fitness_pressure(T, CO₂)
 """
 
 __version__ = "0.1.0"

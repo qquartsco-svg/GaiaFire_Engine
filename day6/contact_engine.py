@@ -70,7 +70,8 @@ class ContactEngine:
                 p = self.p_contact_pair(rho[i], rho[j])
                 matrix[i][j] = p
                 total += p
-        # 스칼라: 쌍 수 N(N-1)/2 가 아닌 총 조우 강도 합. 평균으로 나눌 수도 있음.
+        # 스칼라: 전체 조우 강도의 정규화 평균 = total / n²
+        # (mutation_engine.step()에 p_contact로 직접 전달 가능한 [0,∞) 범위)
         scalar = total / max(1, n * n)
         return ContactResult(p_contact_matrix=matrix, p_contact_scalar=scalar)
 

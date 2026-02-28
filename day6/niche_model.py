@@ -86,25 +86,27 @@ class NicheModel:
         current_total = sum(max(0.0, o) for o in state.occupancy)
 
         new_occ: List[float] = []
-        if total_demand <= 0.0:
-            # 점유 없음 → 현상 유지
+        n_occ = len(state.occupancy)
+
+        if capacity <= 0.0:
+            # 자원 없음 (육지 없는 셀 등) → 전 종 점유 0
+            new_occ = [0.0] * n_occ
+        elif total_demand <= 0.0:
+            # 수요 없음 (점유 0) → 현상 유지
             new_occ = [max(0.0, o) for o in state.occupancy]
-        elif current_total + total_demand <= capacity or capacity <= 0.0:
-            # 자원 충분 (또는 capacity=0 셀은 점유 0으로)
-            if capacity <= 0.0:
-                new_occ = [0.0] * len(state.occupancy)
-            else:
-                new_occ = [
-                    min(capacity, max(0.0, state.occupancy[i]) + demands[i])
-                    for i in range(len(state.occupancy))
-                ]
+        elif current_total + total_demand <= capacity:
+            # 자원 충분 → 자유 성장 (capacity 상한 클램핑)
+            new_occ = [
+                min(capacity, max(0.0, state.occupancy[i]) + demands[i])
+                for i in range(n_occ)
+            ]
         else:
-            # 자원 부족 → 비례 배분
-            # 현재 점유 + 수요를 total_demand 비율로 capacity 에 맞게 재배분
-            total_raw = current_total + total_demand
+            # 자원 부족 → 비례 배분 (proportional rationing)
+            # new_occ_i = capacity * (occ_i + demand_i) / (Σ occ_j + Σ demand_j)
+            total_raw = current_total + total_demand  # 항상 > 0 (total_demand > 0 보장)
             new_occ = [
                 capacity * (max(0.0, state.occupancy[i]) + demands[i]) / total_raw
-                for i in range(len(state.occupancy))
+                for i in range(n_occ)
             ]
 
         return NicheState(
