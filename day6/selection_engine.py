@@ -3,6 +3,18 @@
 Exploitation(♀): 적합도 기반 선택 (roulette wheel).
 Exploration(♂): 다양성·랜덤 기반 선택 (기본: 균등 무작위).
 환경 필터: T, CO₂, N, 포식 압력 등으로 fitness 계산 → 부모/생존자 선택.
+
+Sexual convergence attractor:
+    자연계에서 수천 reproduction 방식 → 2-sex system 으로 수렴.
+    이는 물리적 attractor — recombination 이 단일 복제보다
+    오류 수정 + 다양성 확보 측면에서 우월하기 때문.
+
+    fitness_total = fitness_base(env) + recombination_stability_bonus(genome)
+
+    recombination_stability_bonus:
+        genome 이 이진 재조합(recombination) 친화적 구조일수록 추가 적합도.
+        측정: genome.traits 의 분산이 낮을수록(안정적 수렴 상태) 보너스 증가.
+        → 혼돈(높은 분산) → 수렴(낮은 분산) attractor 방향으로 선택압 형성.
 """
 
 from __future__ import annotations
@@ -22,20 +34,55 @@ class SelectionResult:
 class SelectionEngine:
     """적합도 기반 선택 (Exploitation).
     fitness_fn(genome, env) → 스칼라. 높을수록 선택 확률 증가.
+
+    Parameters
+    ----------
+    fitness_fn : Callable, optional
+        genome, env → float. 기본은 균등(1.0).
+    recombination_bonus : float
+        Sexual convergence attractor 강도.
+        > 0 이면 genome.traits 분산이 낮을수록 추가 적합도 부여.
+        = 0 이면 비활성(기본).
+        물리적 의미: binary 재조합 친화적 안정 구조 → 선택 우위.
     """
     def __init__(
         self,
         fitness_fn: Optional[Callable[[Any, Dict[str, Any]], float]] = None,
+        recombination_bonus: float = 0.0,
     ) -> None:
         self.fitness_fn = fitness_fn or (lambda g, e: 1.0)
+        self.recombination_bonus = max(0.0, recombination_bonus)
+
+    def recombination_stability_bonus(self, genome: Any) -> float:
+        """Sexual convergence attractor: 재조합 안정성 보너스.
+
+        bonus = recombination_bonus / (1 + variance(traits))
+
+        genome.traits 분산이 낮을수록 (안정적 수렴 상태) 보너스 최대화.
+        → 혼돈(높은 분산) 상태보다 binary OS 수렴 상태가 선택적으로 유리.
+        → 자연계의 2-sex system 수렴을 attractor 로 모델링.
+        """
+        if self.recombination_bonus <= 0.0:
+            return 0.0
+        traits = getattr(genome, "traits", None)
+        if not traits or len(traits) < 2:
+            return self.recombination_bonus  # traits 없으면 최대 보너스
+        mean = sum(traits) / len(traits)
+        var = sum((t - mean) ** 2 for t in traits) / len(traits)
+        return self.recombination_bonus / (1.0 + var)
 
     def fitness(
         self,
         genome: Any,
         env: Dict[str, Any],
     ) -> float:
-        """단일 genome 의 적합도."""
-        return self.fitness_fn(genome, env)
+        """단일 genome 의 총 적합도.
+
+        fitness_total = fitness_base(env) + recombination_stability_bonus(genome)
+        """
+        base = self.fitness_fn(genome, env)
+        bonus = self.recombination_stability_bonus(genome)
+        return base + bonus
 
     def select(
         self,
@@ -86,8 +133,9 @@ class SelectionEngine:
 
 def make_selection_engine(
     fitness_fn: Optional[Callable[[Any, Dict[str, Any]], float]] = None,
+    recombination_bonus: float = 0.0,
 ) -> SelectionEngine:
-    return SelectionEngine(fitness_fn=fitness_fn)
+    return SelectionEngine(fitness_fn=fitness_fn, recombination_bonus=recombination_bonus)
 
 
 __all__ = ["SelectionEngine", "SelectionResult", "make_selection_engine"]

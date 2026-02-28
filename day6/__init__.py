@@ -27,6 +27,8 @@ from .reproduction_engine import ReproductionEngine, ReproductionResult, make_re
 from .selection_engine import SelectionEngine, SelectionResult, make_selection_engine
 from .interaction_graph import InteractionGraph, make_interaction_graph
 from .niche_model import NicheModel, NicheState, make_niche_model
+from .day5_coupling import Day5Coupler, CouplingResult, make_day5_coupler
+from .gaia_feedback import GaiaFeedbackEngine, GaiaFeedbackResult, make_gaia_feedback_engine
 
 __all__ = [
     "SpeciesEngine",
@@ -52,4 +54,12 @@ __all__ = [
     "NicheModel",
     "NicheState",
     "make_niche_model",
+    # (A) Day5→Day6 coupling
+    "Day5Coupler",
+    "CouplingResult",
+    "make_day5_coupler",
+    # (B) Gaia feedback loop
+    "GaiaFeedbackEngine",
+    "GaiaFeedbackResult",
+    "make_gaia_feedback_engine",
 ]
