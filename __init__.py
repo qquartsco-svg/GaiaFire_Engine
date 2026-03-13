@@ -1,80 +1,80 @@
-"""GaiaFire Engine v1.2 — 전지구 산불 + 인지 망각 + 시간 스케일 번역기
+"""solar/day5 — 생물 이동 / 정보 네트워크 레이어 (다섯째날)
 
-설계 철학:
-  "환경 설정만 하면 항상성에 의해 산불/망각이 발생할 지점이 자연스럽게 창발된다"
+Day5 = 움직이는 생물 + 씨드 분산 + 먹이사슬 (Loop F/G/H)
 
-구조:
-  fire_risk.py         → 단일 위도×계절 산불 위험도 ODE (로컬 플럭스만)
-  fire_engine.py       → 전지구 예측 엔진 (BandEco, provider 주입, ΔO2_frac 변환)
-  forget_engine.py     → 인지 망각 ODE (산불과 동일 attractor 구조)
-  stress_accumulator.py→ 뉴런(ms)→기관(hr)→행성(yr) 3단계 번역기 + LocalFireReset
-  demo.py              → 산불 4시나리오 데모
-  forget_demo.py       → 망각 4시나리오 데모
-  stress_demo.py       → 적산기 4시나리오 데모
+레이어 포지션:
+    Day3 biosphere/latitude_bands → "확산 결합 없음 (독립 기어)"
+    Day5 → 그 위에 transport term 추가
 
-v1.2 변경:
-  - StressAccumulator: 뉴런 이벤트 → 행성 스트레스 3단계 적산 파이프라인
-  - LocalFireReset: 산불 발생 시 B_wood 국소 소각 + 스트레스 해소
-  - HOMEO_MAP.md: 미시(뉴런)-거시(행성) 완전 변수 매핑 테이블
+핵심 방정식:
+    dB[i]/dt = f_local(B[i]) + transport_in[i] - transport_out[i]
+
+    f_local  = 기존 Day3 BiosphereColumn (광합성/산불/...)
+    K[j→i]  = 위도 밴드 j → i 로의 transport 커널
+
+Loop 연결:
+    Loop F: BirdAgent 씨드 분산 → pioneer B[i] 증가
+    Loop G: BirdAgent 구아노 → nitrogen.N_soil[i] 증가
+    Loop H: FishAgent 포식 → phyto 감소 → CO₂ 호흡 변화
+
+모듈:
+    mobility_engine.py  — BirdAgent / FishAgent (이동률 계산)
+    seed_transport.py   — 위도 밴드 간 보존형 transport 커널
+    food_web.py         — 트로픽 레벨 ODE (phyto/herbivore/carnivore)
 """
 
-try:
-    from .fire_risk import (
-        compute_fire_risk, FireRiskState,
-        f_O2_fire, f_fuel, f_temperature, f_dryness, dry_season_modifier,
-        O2_IGNITION_MIN, O2_IGNITION_HIGH, K_FIRE_INTENSITY,
-    )
-    from .fire_engine import (
-        FireEngine, FireEnvSnapshot, FireBandResult, BandEco,
-        BAND_COUNT, BAND_CENTERS_DEG, BAND_WEIGHTS,
-        KG_O2_PER_FRAC, LAND_AREA_M2,
-    )
-    from .forget_engine import (
-        ForgetEngine, CognitiveBrainSnapshot, ForgetRiskState,
-        GaiaForgetBridge, compute_forget_risk,
-        f_load, f_debris, f_stress, f_fatigue, circadian_modifier,
-    )
-    from .stress_accumulator import (
-        StressAccumulator, LocalFireReset, NeuronEvent,
-        CellStressState, OrganFatigueState, PlanetStressIndex,
-    )
-except ImportError:
-    from fire_risk import (
-        compute_fire_risk, FireRiskState,
-        f_O2_fire, f_fuel, f_temperature, f_dryness, dry_season_modifier,
-        O2_IGNITION_MIN, O2_IGNITION_HIGH, K_FIRE_INTENSITY,
-    )
-    from fire_engine import (
-        FireEngine, FireEnvSnapshot, FireBandResult, BandEco,
-        BAND_COUNT, BAND_CENTERS_DEG, BAND_WEIGHTS,
-        KG_O2_PER_FRAC, LAND_AREA_M2,
-    )
-    from forget_engine import (
-        ForgetEngine, CognitiveBrainSnapshot, ForgetRiskState,
-        GaiaForgetBridge, compute_forget_risk,
-        f_load, f_debris, f_stress, f_fatigue, circadian_modifier,
-    )
-    from stress_accumulator import (
-        StressAccumulator, LocalFireReset, NeuronEvent,
-        CellStressState, OrganFatigueState, PlanetStressIndex,
-    )
+__version__ = "1.0.0"
 
-__version__ = "1.2.0"
+from ._constants import (
+    R_SEED_DISPERSAL,
+    R_GUANO_N,
+    R_PREDATION,
+    R_RESP_CO2,
+    ALPHA_CO2_ABS,
+    DEFAULT_GROWTH_PHYTO,
+    DEFAULT_GRAZING_RATE,
+    DEFAULT_PREDATION,
+    DEFAULT_RESP_FRAC,
+)
+from .mobility_engine import (
+    BirdAgent,
+    FishAgent,
+    make_bird_agent,
+    make_fish_agent,
+)
+from .seed_transport import (
+    SeedTransport,
+    TransportKernel,
+    make_transport,
+)
+from .food_web import (
+    FoodWeb,
+    TrophicState,
+    make_food_web,
+)
 
 __all__ = [
-    # 산불
-    "FireEngine", "FireEnvSnapshot", "FireBandResult", "BandEco",
-    "FireRiskState", "compute_fire_risk",
-    "f_O2_fire", "f_fuel", "f_temperature", "f_dryness", "dry_season_modifier",
-    "O2_IGNITION_MIN", "O2_IGNITION_HIGH", "K_FIRE_INTENSITY",
-    # 망각
-    "ForgetEngine", "CognitiveBrainSnapshot", "ForgetRiskState",
-    "GaiaForgetBridge", "compute_forget_risk",
-    "f_load", "f_debris", "f_stress", "f_fatigue", "circadian_modifier",
-    # 적산기
-    "StressAccumulator", "LocalFireReset", "NeuronEvent",
-    "CellStressState", "OrganFatigueState", "PlanetStressIndex",
-    # 상수
-    "BAND_COUNT", "BAND_CENTERS_DEG", "BAND_WEIGHTS",
-    "KG_O2_PER_FRAC", "LAND_AREA_M2",
+    # constants
+    "R_SEED_DISPERSAL",
+    "R_GUANO_N",
+    "R_PREDATION",
+    "R_RESP_CO2",
+    "ALPHA_CO2_ABS",
+    "DEFAULT_GROWTH_PHYTO",
+    "DEFAULT_GRAZING_RATE",
+    "DEFAULT_PREDATION",
+    "DEFAULT_RESP_FRAC",
+    # mobility
+    "BirdAgent",
+    "FishAgent",
+    "make_bird_agent",
+    "make_fish_agent",
+    # transport
+    "SeedTransport",
+    "TransportKernel",
+    "make_transport",
+    # food web
+    "FoodWeb",
+    "TrophicState",
+    "make_food_web",
 ]
